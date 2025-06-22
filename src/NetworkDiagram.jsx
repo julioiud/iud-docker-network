@@ -411,6 +411,7 @@ const NetworkDiagram = () => {
   const [undoStack, setUndoStack] = useState([]);
   const [redoStack, setRedoStack] = useState([]);
   const [showCopyMsg, setShowCopyMsg] = useState(false);
+  const [linkError, setLinkError] = useState('');
 
   const dockerNamePattern = /^[a-z][a-z0-9-]{0,31}$/;
 
@@ -418,12 +419,17 @@ const NetworkDiagram = () => {
   useEffect(() => {
     if (formData.type === 'server') {
       const newConfigs = { ...serviceConfigs };
-      (formData.services || []).forEach(svc => {
+      const servicesArray = Array.isArray(formData.services)
+        ? formData.services
+        : formData.services
+          ? [formData.services]
+          : [];
+      servicesArray.forEach(svc => {
         if (!newConfigs[svc]) newConfigs[svc] = { ...defaultServiceConfig[svc] };
       });
       // Eliminar configs de servicios no seleccionados
       Object.keys(newConfigs).forEach(svc => {
-        if (!(formData.services || []).includes(svc)) delete newConfigs[svc];
+        if (!servicesArray.includes(svc)) delete newConfigs[svc];
       });
       setServiceConfigs(newConfigs);
     }
@@ -548,12 +554,22 @@ const NetworkDiagram = () => {
         if (selectedNode && selectedNode.id !== node.id) {
           // Prevenir autoenlaces y duplicados
           const exists = links.some(l => (l.from === selectedNode.id && l.to === node.id) || (l.from === node.id && l.to === selectedNode.id));
-          if (!exists) {
+          // Validar que no sea disco-red
+          const nodeA = nodes.find(n => n.id === selectedNode.id);
+          const nodeB = node;
+          const isDiskNetwork =
+            (nodeA.type === 'disk' && nodeB.type === 'network') ||
+            (nodeA.type === 'network' && nodeB.type === 'disk');
+          if (!exists && !isDiskNetwork) {
             setLinks(links => {
               const next = [...links, { from: selectedNode.id, to: node.id }];
               pushHistory(nodes, next);
               return next;
             });
+            setLinkError('');
+          } else if (isDiskNetwork) {
+            setLinkError('No se puede enlazar un disco con una red.');
+            setTimeout(() => setLinkError(''), 1800);
           }
           setSelectedNode(null);
         } else if (!selectedNode || selectedNode.id !== node.id) {
@@ -720,8 +736,10 @@ const NetworkDiagram = () => {
   const handleCanvasContextMenu = (e) => {
     e.preventDefault();
     const rect = canvasRef.current.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const scaleX = canvasRef.current.width / rect.width;
+    const scaleY = canvasRef.current.height / rect.height;
+    const x = (e.clientX - rect.left) * scaleX;
+    const y = (e.clientY - rect.top) * scaleY;
     // Buscar nodo
     const node = nodes.find(n => distance(n.x, n.y, x, y) < NODE_RADIUS);
     if (node) {
@@ -918,6 +936,7 @@ const NetworkDiagram = () => {
         mode={mode}
         setMode={setMode}
         nodes={nodes}
+        links={links}
         downloadAll={downloadAll}
         handleExportJSON={handleExportJSON}
         handleImportJSON={handleImportJSON}
@@ -970,6 +989,25 @@ const NetworkDiagram = () => {
           handleSaveLink={handleSaveLink}
           handleCloseLinkForm={handleCloseLinkForm}
         />
+      )}
+      {linkError && (
+        <div style={{ color: '#e74c3c', fontWeight: 600, margin: '10px auto', textAlign: 'center' }}>{linkError}</div>
+      )}
+      {contextMenu && (
+        <div style={{ position: 'fixed', top: contextMenu.y, left: contextMenu.x, background: '#fff', border: '1px solid #ccc', zIndex: 2000, borderRadius: 6, boxShadow: '0 2px 8px #0002', minWidth: 120 }}>
+          {contextMenu.type === 'node' && (
+            <>
+              <button style={{ width: '100%', padding: 8, border: 'none', background: 'none', cursor: 'pointer' }} onClick={() => { handleEditNode(contextMenu.id); setContextMenu(null); }}>Editar nodo</button>
+              <button style={{ width: '100%', padding: 8, border: 'none', background: 'none', cursor: 'pointer', color: 'red' }} onClick={() => { handleDeleteNode(contextMenu.id); setContextMenu(null); }}>Eliminar nodo</button>
+            </>
+          )}
+          {contextMenu.type === 'link' && (
+            <>
+              <button style={{ width: '100%', padding: 8, border: 'none', background: 'none', cursor: 'pointer' }} onClick={() => { handleEditLink(contextMenu.linkId); setContextMenu(null); }}>Editar enlace</button>
+              <button style={{ width: '100%', padding: 8, border: 'none', background: 'none', cursor: 'pointer', color: 'red' }} onClick={() => { handleDeleteLink(contextMenu.linkId); setContextMenu(null); }}>Eliminar enlace</button>
+            </>
+          )}
+        </div>
       )}
     </div>
   );
