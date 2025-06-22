@@ -991,7 +991,43 @@ const NetworkDiagram = () => {
         />
       )}
       {linkError && (
-        <div style={{ color: '#e74c3c', fontWeight: 600, margin: '10px auto', textAlign: 'center' }}>{linkError}</div>
+        <div style={{
+          position: 'fixed',
+          top: 0, left: 0, right: 0, bottom: 0,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 3000,
+          pointerEvents: 'none',
+        }}>
+          <div style={{
+            color: '#fff',
+            background: 'linear-gradient(90deg, #e74c3c 60%, #c52331 100%)',
+            fontWeight: 700,
+            borderRadius: 12,
+            padding: '18px 38px',
+            maxWidth: 420,
+            boxShadow: '0 6px 32px #0005',
+            letterSpacing: 0.2,
+            fontSize: '1.13em',
+            textAlign: 'center',
+            animation: 'fadeInScale 0.3s',
+            pointerEvents: 'auto',
+            border: '2.5px solid #fff',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+          }}>
+            <span role="img" aria-label="error" style={{fontSize: 28, marginRight: 8, filter: 'drop-shadow(0 2px 2px #0003)'}}>🚫</span>
+            {linkError}
+          </div>
+          <style>{`
+            @keyframes fadeInScale {
+              from { opacity: 0; transform: scale(0.92) translateY(30px); }
+              to { opacity: 1; transform: none; }
+            }
+          `}</style>
+        </div>
       )}
       {contextMenu && (
         <div style={{ position: 'fixed', top: contextMenu.y, left: contextMenu.x, background: '#fff', border: '1px solid #ccc', zIndex: 2000, borderRadius: 6, boxShadow: '0 2px 8px #0002', minWidth: 120 }}>
