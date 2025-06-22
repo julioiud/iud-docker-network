@@ -38,6 +38,9 @@ function App() {
         <span style={{ marginLeft: 6 }}>Diagramador de ecosistema de desarrollo web con Docker</span>
       </h1>
       <NetworkDiagram />
+      <footer style={{textAlign: 'center', marginTop: '2.5rem', color: '#243F59', fontWeight: 500, fontSize: '1.05em', letterSpacing: 0.2}}>
+        Autor: Julio Martinez de la IUDIgital
+      </footer>
     </div>
   )
 }

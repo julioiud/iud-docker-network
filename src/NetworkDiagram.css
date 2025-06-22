@@ -169,4 +169,193 @@
     width: 100%;
     margin: 0.3rem 0 0 0;
   }
+}
+
+/* Modern form styles */
+.modern-form {
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 6px 32px rgba(0,0,0,0.13);
+  padding: 1.5rem 2rem;
+  min-width: 320px;
+  max-width: 480px;
+  width: 100%;
+  animation: modalFadeIn 0.3s;
+  max-width: 98vw;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+@keyframes modalFadeIn {
+  from { opacity: 0; transform: translateY(40px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.1rem 1.5rem;
+  margin-bottom: 1rem;
+}
+
+@media (max-width: 900px) {
+  .modern-form {
+    max-width: 99vw;
+    padding: 1.2rem 0.5rem;
+  }
+  .form-grid {
+    grid-template-columns: 1fr;
+    gap: 0.8rem;
+  }
+}
+
+@media (max-width: 600px) {
+  .modern-form {
+    padding: 1rem 0.3rem;
+    min-width: 0;
+    max-width: 99vw;
+  }
+  .form-grid {
+    grid-template-columns: 1fr;
+    gap: 0.7rem;
+  }
+}
+
+.form-label-icon {
+  margin-right: 6px;
+  font-size: 1.1em;
+  vertical-align: middle;
+}
+
+input, select {
+  border: 1.5px solid #b0b0b0;
+  border-radius: 7px;
+  padding: 0.45rem 0.7rem;
+  font-size: 1rem;
+  margin-top: 2px;
+  margin-bottom: 2px;
+  transition: border 0.2s, box-shadow 0.2s;
+  outline: none;
+  background: #f8fafc;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+input:focus, select:focus {
+  border-color: #4f8cff;
+  box-shadow: 0 0 0 2px #4f8cff33;
+}
+.input-error {
+  border-color: #e74c3c !important;
+  background: #fff6f6;
+}
+.form-error {
+  color: #e74c3c;
+  font-size: 0.97em;
+  margin-top: 2px;
+  margin-bottom: 2px;
+}
+
+.form-actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: flex-end;
+  margin-top: 1.2rem;
+}
+.btn-primary,
+.btn-primary.active {
+  background: #C52331 !important;
+  color: #fff !important;
+}
+.btn-primary:hover,
+.btn-primary.active:hover {
+  background: #e03a47 !important;
+  color: #fff !important;
+}
+.toolbar button.active {
+  /* Elimina el color de fondo azul para no sobrescribir el rojo del btn-primary */
+  background: unset;
+  color: unset;
+}
+.btn-secondary {
+  background: #C52331;
+  color: #fff;
+  border: none;
+  font-weight: 500;
+  padding: 0.6rem 1.5rem;
+  border-radius: 7px;
+  font-size: 1.05em;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.btn-secondary:hover {
+  background: #a81c27;
+}
+
+.service-config-box {
+  background: #f8fafc;
+  border: 1.5px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin: 10px 0 0 0;
+}
+.service-config-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem 1.5rem;
+  margin-top: 8px;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+.service-config-label {
+  font-size: 0.98em;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.service-ports {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.service-port-input input {
+  width: 80px;
+}
+.add-port-btn {
+  margin-left: 8px;
+  background: #4f8cff;
+  color: #fff;
+  border: none;
+  border-radius: 5px;
+  padding: 0.3rem 0.8rem;
+  font-size: 0.97em;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.add-port-btn:hover {
+  background: #2496ed;
+}
+
+.btn-blue {
+  background: #243F59 !important;
+  color: #fff !important;
+  border: none;
+  font-weight: 600;
+  padding: 0.6rem 1.5rem;
+  border-radius: 7px;
+  font-size: 1.05em;
+  cursor: pointer;
+  box-shadow: 0 2px 8px #243F5922;
+  transition: background 0.2s, box-shadow 0.2s;
+}
+.btn-blue:hover,
+.btn-blue.active:hover {
+  background: #34587a !important;
+  color: #fff !important;
+}
+.btn-blue:disabled {
+  background: #7a8fa3 !important;
+  color: #fff !important;
+  cursor: not-allowed;
 } 

@@ -252,6 +252,8 @@ const NetworkDiagram = () => {
   const [formError, setFormError] = useState('');
   const [serviceConfigs, setServiceConfigs] = useState({});
   const [portError, setPortError] = useState('');
+  const [undoStack, setUndoStack] = useState([]);
+  const [redoStack, setRedoStack] = useState([]);
 
   const dockerNamePattern = /^[a-z][a-z0-9-]{0,31}$/;
 
@@ -294,6 +296,51 @@ const NetworkDiagram = () => {
     localStorage.setItem(LOCALSTORAGE_KEY, JSON.stringify({ nodes, links }));
   }, [nodes, links]);
 
+  // Inicializar historial con el estado inicial
+  useEffect(() => {
+    setUndoStack([{ nodes, links }]);
+    setRedoStack([]);
+    // eslint-disable-next-line
+  }, []);
+
+  // Función para guardar en el historial solo en cambios reales
+  const pushHistory = React.useCallback((newNodes, newLinks) => {
+    setUndoStack(stack => [...stack, { nodes: newNodes, links: newLinks }]);
+    setRedoStack([]);
+  }, []);
+
+  // Atajos de teclado para deshacer/rehacer
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Ctrl+Z (deshacer)
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        if (undoStack.length > 1) {
+          const newUndo = [...undoStack];
+          const last = newUndo.pop();
+          setRedoStack(r => [last, ...r]);
+          const prev = newUndo[newUndo.length - 1];
+          setUndoStack(newUndo);
+          setNodes(prev.nodes);
+          setLinks(prev.links);
+        }
+      }
+      // Ctrl+Y o Ctrl+Shift+Z (rehacer)
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+        e.preventDefault();
+        if (redoStack.length > 0) {
+          const [next, ...rest] = redoStack;
+          setUndoStack(stack => [...stack, next]);
+          setRedoStack(rest);
+          setNodes(next.nodes);
+          setLinks(next.links);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [undoStack, redoStack]);
+
   const handleServiceEnvChange = (svc, key, value) => {
     setServiceConfigs(cfgs => ({
       ...cfgs,
@@ -326,22 +373,38 @@ const NetworkDiagram = () => {
 
   const handleCanvasClick = (e) => {
     const rect = canvasRef.current.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const scaleX = canvasRef.current.width / rect.width;
+    const scaleY = canvasRef.current.height / rect.height;
+    const x = (e.clientX - rect.left) * scaleX;
+    const y = (e.clientY - rect.top) * scaleY;
 
     if (mode === 'node') {
-      setNewNode({ x, y });
-      setFormData({ type: '', os: '', name: '', services: '' });
-      setShowNodeForm(true);
+      const node = nodes.find(n => distance(n.x, n.y, x, y) < NODE_RADIUS);
+      if (!node) {
+        setNewNode({ x, y });
+        setFormData({ type: '', os: '', name: '', services: '' });
+        setShowNodeForm(true);
+      }
     } else if (mode === 'link') {
       const node = nodes.find(n => distance(n.x, n.y, x, y) < NODE_RADIUS);
       if (node) {
         if (selectedNode && selectedNode.id !== node.id) {
-          setLinks([...links, { from: selectedNode.id, to: node.id }]);
+          // Prevenir autoenlaces y duplicados
+          const exists = links.some(l => (l.from === selectedNode.id && l.to === node.id) || (l.from === node.id && l.to === selectedNode.id));
+          if (!exists) {
+            setLinks(links => {
+              const next = [...links, { from: selectedNode.id, to: node.id }];
+              pushHistory(nodes, next);
+              return next;
+            });
+          }
           setSelectedNode(null);
-        } else {
+        } else if (!selectedNode || selectedNode.id !== node.id) {
           setSelectedNode(node);
         }
+      } else {
+        // Si se hace clic fuera de un nodo, limpiar selección
+        setSelectedNode(null);
       }
     }
   };
@@ -403,8 +466,9 @@ const NetworkDiagram = () => {
     setPortError('');
     const id = editNode ? editNode.id : Date.now();
     setNodes(nodes => {
+      let next;
       if (editNode) {
-        return nodes.map(n => n.id === id ? {
+        next = nodes.map(n => n.id === id ? {
           ...n,
           type: formData.type,
           os: formData.type === 'server' || formData.type === 'workstation' ? formData.os : null,
@@ -413,7 +477,7 @@ const NetworkDiagram = () => {
           serviceConfigs: formData.type === 'server' ? { ...serviceConfigs } : undefined,
         } : n);
       } else {
-        return [
+        next = [
           ...nodes,
           {
             ...newNode,
@@ -426,6 +490,8 @@ const NetworkDiagram = () => {
           },
         ];
       }
+      pushHistory(next, links);
+      return next;
     });
     setShowNodeForm(false);
     setEditNode(null);
@@ -532,7 +598,11 @@ const NetworkDiagram = () => {
   };
 
   const handleDeleteNode = (id) => {
-    setNodes(nodes => nodes.filter(n => n.id !== id));
+    setNodes(nodes => {
+      const next = nodes.filter(n => n.id !== id);
+      pushHistory(next, links.filter(l => l.from !== id && l.to !== id));
+      return next;
+    });
     setLinks(links => links.filter(l => l.from !== id && l.to !== id));
     setContextMenu(null);
   };
@@ -554,7 +624,11 @@ const NetworkDiagram = () => {
 
   const handleDeleteLink = (linkId) => {
     const [from, to] = linkId.split('-').map(Number);
-    setLinks(links => links.filter(l => !(l.from === from && l.to === to) && !(l.from === to && l.to === from)));
+    setLinks(links => {
+      const next = links.filter(l => !(l.from === from && l.to === to) && !(l.from === to && l.to === from));
+      pushHistory(nodes, next);
+      return next;
+    });
     setContextMenu(null);
   };
 
@@ -717,11 +791,11 @@ const NetworkDiagram = () => {
   return (
     <div className="network-diagram-container" style={{ position: 'relative' }}>
       <div className="toolbar">
-        <button onClick={() => setMode('node')} className={mode === 'node' ? 'active' : ''}>Agregar Nodo</button>
-        <button onClick={() => setMode('link')} className={mode === 'link' ? 'active' : ''}>Agregar Enlace</button>
-        <button onClick={() => { setNodes([]); setLinks([]); setSelectedNode(null); localStorage.removeItem(LOCALSTORAGE_KEY); }}>Limpiar</button>
-        <button onClick={() => downloadAll(nodes, links)} style={{ background: '#198754', color: '#fff' }}>Exportar ecosistema (YML + Dockerfiles)</button>
-        <button onClick={handleExportJSON} style={{ background: '#4f8cff', color: '#fff' }}>Exportar diagrama (JSON)</button>
+        <button onClick={() => setMode('node')} className={`btn-primary${mode === 'node' ? ' active' : ''}`}>Agregar Nodo</button>
+        <button onClick={() => setMode('link')} className={`btn-blue${mode === 'link' ? ' active' : ''}`} disabled={nodes.length < 2}>Agregar Enlace</button>
+        <button onClick={() => { setNodes([]); setLinks([]); setSelectedNode(null); localStorage.removeItem(LOCALSTORAGE_KEY); }} className="btn-blue">Limpiar</button>
+        <button onClick={() => downloadAll(nodes, links)} className="btn-blue" disabled={nodes.length === 0}>Exportar ecosistema (YML + Dockerfiles)</button>
+        <button onClick={handleExportJSON} className="btn-blue" disabled={nodes.length === 0}>Exportar diagrama (JSON)</button>
         <label style={{ background: '#e0e7ef', color: '#222', borderRadius: 5, padding: '0.5rem 1.2rem', cursor: 'pointer', marginLeft: 8 }}>
           Importar diagrama (JSON)
           <input type="file" accept="application/json" style={{ display: 'none' }} onChange={handleImportJSON} />
@@ -759,97 +833,102 @@ const NetworkDiagram = () => {
           )}
         </div>
       )}
-      {editLink && (
-        <div className="modal-overlay">
-          <form className="node-form" onSubmit={handleSaveLink}>
-            <h3>Editar Enlace</h3>
-            <label>Origen:
-              <select name="from" value={editLink.from} onChange={handleLinkFormChange}>
-                {nodes.map(n => (
-                  <option key={n.id} value={n.id}>{n.name || n.type}</option>
-                ))}
-              </select>
-            </label>
-            <label>Destino:
-              <select name="to" value={editLink.to} onChange={handleLinkFormChange}>
-                {nodes.map(n => (
-                  <option key={n.id} value={n.id}>{n.name || n.type}</option>
-                ))}
-              </select>
-            </label>
-            <div style={{ marginTop: 12 }}>
-              <button type="submit">Guardar</button>
-              <button type="button" onClick={handleCloseLinkForm} style={{ marginLeft: 8 }}>Cancelar</button>
-            </div>
-          </form>
-        </div>
-      )}
       {showNodeForm && (
-        <div className="modal-overlay">
-          <form className="node-form" onSubmit={handleAddNode}>
-            <h3>{editNode ? 'Editar Nodo' : 'Agregar Nodo'}</h3>
-            <label>Nombre:
-              <input name="name" value={formData.name || ''} onChange={handleFormChange} maxLength={32} required placeholder="Nombre del nodo" autoComplete="off" />
-            </label>
-            {formError && <div style={{ color: 'red', fontSize: 14 }}>{formError}</div>}
-            {portError && <div style={{ color: 'red', fontSize: 14 }}>{portError}</div>}
-            <label>Tipo:
-              <select name="type" value={formData.type} onChange={handleFormChange} required>
-                <option value="" disabled>Selecciona un tipo</option>
-                {nodeTypes.map(opt => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
-            </label>
-            {(formData.type === 'server' || formData.type === 'workstation') && (
-              <label>Sistema Operativo:
-                <select name="os" value={formData.os} onChange={handleFormChange} required>
-                  <option value="" disabled>Selecciona un sistema operativo</option>
-                  {osTypes.map(opt => (
+        <div className="modal-overlay animated-modal">
+          <form className="node-form modern-form" onSubmit={handleAddNode} autoComplete="off">
+            <h3 style={{marginBottom: 8, fontWeight: 700, fontSize: '1.2em'}}> {editNode ? 'Editar Nodo' : 'Agregar Nodo'} </h3>
+            <div className="form-grid">
+              <label>
+                <span className="form-label-icon">🏷️</span> Nombre:
+                <input name="name" value={formData.name || ''} onChange={handleFormChange} maxLength={32} required placeholder="Nombre del nodo" className={formError ? 'input-error' : ''} />
+                {formError && <div className="form-error">{formError}</div>}
+              </label>
+              <label>
+                <span className="form-label-icon">🔗</span> Tipo:
+                <select name="type" value={formData.type} onChange={handleFormChange} required>
+                  <option value="" disabled>Selecciona un tipo</option>
+                  {nodeTypes.map(opt => (
                     <option key={opt.value} value={opt.value}>{opt.label}</option>
                   ))}
                 </select>
               </label>
-            )}
-            {formData.type === 'server' && (
-              <label>Servicios:
-                <select name="services" value={formData.services} onChange={handleFormChange} required>
-                  <option value="" disabled>Selecciona un servicio</option>
-                  {serverServices.map(opt => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
-              </label>
-            )}
-            {formData.type === 'server' && formData.services && (
-              <div style={{ border: '1px solid #e0e0e0', borderRadius: 8, padding: 12, margin: '10px 0', background: '#f8fafc' }}>
-                <b>Configuración del servicio:</b>
-                <div style={{ marginBottom: 10, paddingBottom: 8, borderBottom: '1px solid #eee' }}>
-                  <div style={{ fontWeight: 500, marginBottom: 4 }}>{serverServices.find(s => s.value === formData.services)?.label || formData.services}</div>
-                  <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                    {Object.entries(serviceConfigs[formData.services]?.env || {}).map(([key, val]) => (
-                      <label key={key} style={{ fontSize: 13 }}>
-                        {key}:
-                        <input style={{ marginLeft: 4, width: 120 }} value={val} onChange={e => handleServiceEnvChange(formData.services, key, e.target.value)} />
-                      </label>
+              {(formData.type === 'server' || formData.type === 'workstation') && (
+                <label>
+                  <span className="form-label-icon">💻</span> SO:
+                  <select name="os" value={formData.os} onChange={handleFormChange} required>
+                    <option value="" disabled>Selecciona un sistema operativo</option>
+                    {osTypes.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
                     ))}
-                  </div>
-                  <div style={{ marginTop: 4 }}>
+                  </select>
+                </label>
+              )}
+              {formData.type === 'server' && (
+                <label>
+                  <span className="form-label-icon">⚙️</span> Servicio:
+                  <select name="services" value={formData.services} onChange={handleFormChange} required>
+                    <option value="" disabled>Selecciona un servicio</option>
+                    {serverServices.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
+            </div>
+            {portError && <div className="form-error">{portError}</div>}
+            {formData.type === 'server' && formData.services && (
+              <div className="service-config-box">
+                <b>Configuración del servicio:</b>
+                <div className="service-config-fields">
+                  {Object.entries(serviceConfigs[formData.services]?.env || {}).map(([key, val]) => (
+                    <label key={key} className="service-config-label">
+                      {key}:
+                      <input value={val} onChange={e => handleServiceEnvChange(formData.services, key, e.target.value)} />
+                    </label>
+                  ))}
+                  <div className="service-ports">
                     <b>Puertos:</b>
                     {(serviceConfigs[formData.services]?.ports || []).map((port, idx) => (
-                      <span key={idx} style={{ marginLeft: 6 }}>
-                        <input style={{ width: 80 }} value={port} onChange={e => handleServicePortChange(formData.services, idx, e.target.value)} />
-                        <button type="button" style={{ marginLeft: 2 }} onClick={() => handleRemovePort(formData.services, idx)}>-</button>
+                      <span key={idx} className="service-port-input">
+                        <input value={port} onChange={e => handleServicePortChange(formData.services, idx, e.target.value)} />
+                        <button type="button" onClick={() => handleRemovePort(formData.services, idx)}>-</button>
                       </span>
                     ))}
-                    <button type="button" style={{ marginLeft: 8 }} onClick={() => handleAddPort(formData.services)}>+ Añadir puerto</button>
+                    <button type="button" className="add-port-btn" onClick={() => handleAddPort(formData.services)}>+ Añadir puerto</button>
                   </div>
                 </div>
               </div>
             )}
-            <div style={{ marginTop: 12 }}>
-              <button type="submit" disabled={!!formError || !!portError}>{editNode ? 'Guardar' : 'Agregar'}</button>
-              <button type="button" onClick={handleCloseForm} style={{ marginLeft: 8 }}>Cancelar</button>
+            <div className="form-actions">
+              <button type="submit" className="btn-primary" disabled={!!formError || !!portError}>{editNode ? 'Guardar' : 'Agregar'}</button>
+              <button type="button" className="btn-secondary" onClick={handleCloseForm}>Cancelar</button>
+            </div>
+          </form>
+        </div>
+      )}
+      {editLink && (
+        <div className="modal-overlay animated-modal">
+          <form className="node-form modern-form" onSubmit={handleSaveLink} autoComplete="off">
+            <h3 style={{marginBottom: 8, fontWeight: 700, fontSize: '1.2em'}}>Editar Enlace</h3>
+            <div className="form-grid">
+              <label>Origen:
+                <select name="from" value={editLink.from} onChange={handleLinkFormChange}>
+                  {nodes.map(n => (
+                    <option key={n.id} value={n.id}>{n.name || n.type}</option>
+                  ))}
+                </select>
+              </label>
+              <label>Destino:
+                <select name="to" value={editLink.to} onChange={handleLinkFormChange}>
+                  {nodes.map(n => (
+                    <option key={n.id} value={n.id}>{n.name || n.type}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className="form-actions">
+              <button type="submit" className="btn-primary">Guardar</button>
+              <button type="button" className="btn-secondary" onClick={handleCloseLinkForm}>Cancelar</button>
             </div>
           </form>
         </div>
