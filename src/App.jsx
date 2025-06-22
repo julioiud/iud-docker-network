@@ -5,6 +5,7 @@ import './App.css'
 import NetworkDiagram from './NetworkDiagram'
 import { FaDocker, FaNetworkWired, FaServer, FaCode, FaCloud, FaDatabase, FaReact, FaNodeJs } from 'react-icons/fa'
 import { SiMongodb, SiMysql, SiAngular, SiVuedotjs } from 'react-icons/si'
+import Footer from './components/Footer'
 
 function App() {
   const [count, setCount] = useState(0)
@@ -38,9 +39,7 @@ function App() {
         <span style={{ marginLeft: 6 }}>Diagramador de ecosistema de desarrollo web con Docker</span>
       </h1>
       <NetworkDiagram />
-      <footer style={{textAlign: 'center', marginTop: '2.5rem', color: '#243F59', fontWeight: 500, fontSize: '1.05em', letterSpacing: 0.2}}>
-        Autor: Julio Martinez de la IUDIgital
-      </footer>
+      <Footer />
     </div>
   )
 }

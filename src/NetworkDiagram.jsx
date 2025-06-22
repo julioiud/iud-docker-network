@@ -1,9 +1,14 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { FaServer, FaDesktop, FaNetworkWired, FaHdd, FaLinux, FaWindows, FaDatabase } from 'react-icons/fa';
 import { SiMysql, SiPostgresql, SiMongodb, SiOracle, SiApachekafka, SiSpring, SiFlask, SiDjango, SiLaravel, SiReact, SiAngular, SiVuedotjs, SiDotnet } from 'react-icons/si';
 import './NetworkDiagram.css';
 import { saveAs } from 'file-saver';
 import JSZip from 'jszip';
+import NodeForm from './components/NetworkDiagram/NodeForm';
+import LinkForm from './components/NetworkDiagram/LinkForm';
+import Toolbar from './components/NetworkDiagram/Toolbar';
+import YamlPanel from './components/NetworkDiagram/YamlPanel';
+import NodeIcons from './components/NetworkDiagram/NodeIcons';
 
 const NODE_RADIUS = 24;
 
@@ -60,22 +65,44 @@ const defaultServiceConfig = {
   dotnet: { env: {}, ports: ['80:80'] },
 };
 
-const serviceIcons = {
-  mysql: SiMysql,
-  postgresql: SiPostgresql,
-  oracle: SiOracle,
-  sqlserver: FaDatabase,
-  mongodb: SiMongodb,
-  kafka: SiApachekafka,
-  springboot: SiSpring,
-  flask: SiFlask,
-  django: SiDjango,
-  laravel: SiLaravel,
-  reactjs: SiReact,
-  angular: SiAngular,
-  vuejs: SiVuedotjs,
-  dotnet: SiDotnet,
-};
+// Utilidades para distinguir apps y bases de datos
+const appServices = ['springboot', 'flask', 'django', 'laravel', 'reactjs', 'angular', 'vuejs', 'dotnet'];
+const dbServices = ['mysql', 'postgresql', 'oracle', 'sqlserver', 'mongodb', 'kafka'];
+
+function getServiceKey(services) {
+  if (Array.isArray(services)) return services[0] || '';
+  return services || '';
+}
+
+function generateDockerfile(node) {
+  const serviceKey = getServiceKey(node.services);
+  if (!serviceKey || !appServices.includes(serviceKey)) {
+    if (node.os === 'windows') {
+      return `FROM mcr.microsoft.com/windows/servercore:ltsc2019\nCMD [\"powershell.exe\"]\n`;
+    }
+    return `FROM ubuntu:latest\nCMD [\"/bin/bash\"]\n`;
+  }
+  switch (serviceKey) {
+    case 'springboot':
+      return `# Dockerfile para Spring Boot\nFROM openjdk:17-jdk-slim\nWORKDIR /app\nCOPY ./*.jar app.jar\nEXPOSE 8080\nENTRYPOINT [\"java\", \"-jar\", \"app.jar\"]\n`;
+    case 'flask':
+      return `# Dockerfile para Flask\nFROM python:3.11-slim\nWORKDIR /app\nCOPY . .\nRUN pip install --no-cache-dir -r requirements.txt\nEXPOSE 5000\nCMD [\"python\", \"app.py\"]\n`;
+    case 'django':
+      return `# Dockerfile para Django\nFROM python:3.11-slim\nWORKDIR /app\nCOPY . .\nRUN pip install --no-cache-dir -r requirements.txt\nEXPOSE 8000\nCMD [\"python\", \"manage.py\", \"runserver\", \"0.0.0.0:8000\"]\n`;
+    case 'laravel':
+      return `# Dockerfile para Laravel\nFROM php:8.2-apache\nWORKDIR /var/www/html\nCOPY . .\nRUN docker-php-ext-install pdo pdo_mysql\nEXPOSE 80\n`;
+    case 'reactjs':
+      return `# Dockerfile para ReactJS\nFROM node:20\nWORKDIR /app\nCOPY package*.json ./\nRUN npm install\nCOPY . .\nEXPOSE 3000\nCMD [\"npm\", \"start\"]\n`;
+    case 'angular':
+      return `# Dockerfile para Angular\nFROM node:20\nWORKDIR /app\nCOPY package*.json ./\nRUN npm install\nCOPY . .\nEXPOSE 4200\nCMD [\"npm\", \"start\"]\n`;
+    case 'vuejs':
+      return `# Dockerfile para VueJS\nFROM node:20\nWORKDIR /app\nCOPY package*.json ./\nRUN npm install\nCOPY . .\nEXPOSE 5173\nCMD [\"npm\", \"run\", \"dev\"]\n`;
+    case 'dotnet':
+      return `# Dockerfile para .NET\nFROM mcr.microsoft.com/dotnet/aspnet:8.0 AS base\nWORKDIR /app\nEXPOSE 80\nFROM mcr.microsoft.com/dotnet/sdk:8.0 AS build\nWORKDIR /src\nCOPY . .\nRUN dotnet publish -c Release -o /app\nFROM base AS final\nWORKDIR /app\nCOPY --from=build /app .\nENTRYPOINT [\"dotnet\", \"app.dll\"]\n`;
+    default:
+      return `FROM ubuntu:latest\nCMD [\"/bin/bash\"]\n`;
+  }
+}
 
 function generateDockerCompose(nodes, links) {
   // Filtrar nodos relevantes
@@ -116,35 +143,138 @@ function generateDockerCompose(nodes, links) {
     serviceDisks[serviceNames[i]] = [...new Set(diskMounts)];
   });
 
+  // --- Lógica especial para Kafka + Zookeeper ---
+  // Buscar todos los nodos kafka
+  const kafkaNodes = services
+    .map((svc, i) => ({ svc, i, serviceKey: getServiceKey(svc.services) }))
+    .filter(({ serviceKey }) => serviceKey === 'kafka');
+  let zookeeperAdded = false;
+  let zookeeperNetworks = [];
+  if (kafkaNodes.length > 0) {
+    // Unir todas las redes de los kafka
+    zookeeperNetworks = [
+      ...new Set(kafkaNodes.flatMap(({ i }) => serviceNetworks[serviceNames[i]] || []))
+    ];
+  }
+
   // Construir YAML
   let yml = 'version: "3.8"\nservices:\n';
   services.forEach((svc, i) => {
     const name = serviceNames[i];
-    // Si es server y tiene servicios, crear un contenedor por servicio
-    if (svc.type === 'server' && typeof svc.services === 'string' && svc.services) {
-      const serviceKey = svc.services;
-      const serviceDef = serverServices.find(s => s.value === serviceKey);
-      if (serviceDef) {
-        const svcName = `${name}-${serviceKey}`;
-        yml += `  ${svcName}:\n`;
-        yml += `    image: ${serviceDef.image}\n`;
-        yml += `    container_name: ${svcName}\n`;
-        // Variables de entorno
-        const envs = (svc.serviceConfigs && svc.serviceConfigs[serviceKey]?.env) || {};
-        if (Object.keys(envs).length > 0) {
-          yml += `    environment:\n`;
-          Object.entries(envs).forEach(([k, v]) => {
-            yml += `      - ${k}=${v}\n`;
-          });
+    if (svc.type === 'server') {
+      const serviceKey = getServiceKey(svc.services);
+      if (serviceKey) {
+        const serviceDef = serverServices.find(s => s.value === serviceKey);
+        if (serviceDef) {
+          const svcName = `${name}-${serviceKey}`;
+          yml += `  ${svcName}:\n`;
+          if (serviceKey === 'kafka') {
+            // Kafka depende de zookeeper
+            yml += `    image: ${serviceDef.image}\n`;
+            yml += `    container_name: ${svcName}\n`;
+            yml += `    depends_on:\n      - zookeeper\n`;
+            yml += `    environment:\n`;
+            yml += `      - KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181\n`;
+            // Agregar otras variables de entorno personalizadas
+            const envs = (svc.serviceConfigs && svc.serviceConfigs[serviceKey]?.env) || {};
+            Object.entries(envs).forEach(([k, v]) => {
+              if (k !== 'KAFKA_ZOOKEEPER_CONNECT') yml += `      - ${k}=${v}\n`;
+            });
+            // Puertos
+            const ports = (svc.serviceConfigs && svc.serviceConfigs[serviceKey]?.ports) || [];
+            if (ports.length > 0) {
+              yml += `    ports:\n`;
+              ports.forEach(p => {
+                if (p && p.trim()) yml += `      - \"${p}\"\n`;
+              });
+            }
+            if (serviceDisks[name] && serviceDisks[name].length > 0) {
+              yml += `    volumes:\n`;
+              serviceDisks[name].forEach(vol => {
+                yml += `      - ${vol}:/data/${vol}\n`;
+              });
+            }
+            // Redes
+            const nets = serviceNetworks[name] || [];
+            if (nets.length > 0) {
+              yml += `    networks:\n`;
+              nets.forEach(net => {
+                yml += `      - ${net}\n`;
+              });
+            }
+            yml += '\n';
+            zookeeperAdded = true;
+          } else if (appServices.includes(serviceKey)) {
+            yml += `    build: ./${svcName}\n`;
+            yml += `    container_name: ${svcName}\n`;
+            // Variables de entorno
+            const envs = (svc.serviceConfigs && svc.serviceConfigs[serviceKey]?.env) || {};
+            if (Object.keys(envs).length > 0) {
+              yml += `    environment:\n`;
+              Object.entries(envs).forEach(([k, v]) => {
+                yml += `      - ${k}=${v}\n`;
+              });
+            }
+            // Puertos
+            const ports = (svc.serviceConfigs && svc.serviceConfigs[serviceKey]?.ports) || [];
+            if (ports.length > 0) {
+              yml += `    ports:\n`;
+              ports.forEach(p => {
+                if (p && p.trim()) yml += `      - \"${p}\"\n`;
+              });
+            }
+            if (serviceDisks[name] && serviceDisks[name].length > 0) {
+              yml += `    volumes:\n`;
+              serviceDisks[name].forEach(vol => {
+                yml += `      - ${vol}:/data/${vol}\n`;
+              });
+            }
+            if (serviceNetworks[name] && serviceNetworks[name].length > 0) {
+              yml += `    networks:\n`;
+              serviceNetworks[name].forEach(net => {
+                yml += `      - ${net}\n`;
+              });
+            }
+            yml += '\n';
+          } else {
+            yml += `    image: ${serviceDef.image}\n`;
+            yml += `    container_name: ${svcName}\n`;
+            // Variables de entorno
+            const envs = (svc.serviceConfigs && svc.serviceConfigs[serviceKey]?.env) || {};
+            if (Object.keys(envs).length > 0) {
+              yml += `    environment:\n`;
+              Object.entries(envs).forEach(([k, v]) => {
+                yml += `      - ${k}=${v}\n`;
+              });
+            }
+            // Puertos
+            const ports = (svc.serviceConfigs && svc.serviceConfigs[serviceKey]?.ports) || [];
+            if (ports.length > 0) {
+              yml += `    ports:\n`;
+              ports.forEach(p => {
+                if (p && p.trim()) yml += `      - \"${p}\"\n`;
+              });
+            }
+            if (serviceDisks[name] && serviceDisks[name].length > 0) {
+              yml += `    volumes:\n`;
+              serviceDisks[name].forEach(vol => {
+                yml += `      - ${vol}:/data/${vol}\n`;
+              });
+            }
+            if (serviceNetworks[name] && serviceNetworks[name].length > 0) {
+              yml += `    networks:\n`;
+              serviceNetworks[name].forEach(net => {
+                yml += `      - ${net}\n`;
+              });
+            }
+            yml += '\n';
+          }
         }
-        // Puertos
-        const ports = (svc.serviceConfigs && svc.serviceConfigs[serviceKey]?.ports) || [];
-        if (ports.length > 0) {
-          yml += `    ports:\n`;
-          ports.forEach(p => {
-            if (p && p.trim()) yml += `      - \"${p}\"\n`;
-          });
-        }
+      } else {
+        // Server sin servicio: imagen base
+        yml += `  ${name}:\n`;
+        yml += `    image: ${svc.os === 'windows' ? 'mcr.microsoft.com/windows/servercore:ltsc2019' : 'ubuntu:latest'}\n`;
+        yml += `    container_name: ${name}\n`;
         if (serviceDisks[name] && serviceDisks[name].length > 0) {
           yml += `    volumes:\n`;
           serviceDisks[name].forEach(vol => {
@@ -159,7 +289,7 @@ function generateDockerCompose(nodes, links) {
         }
         yml += '\n';
       }
-    } else {
+    } else if (svc.type === 'workstation') {
       yml += `  ${name}:\n`;
       yml += `    image: ${svc.os === 'windows' ? 'mcr.microsoft.com/windows/servercore:ltsc2019' : 'ubuntu:latest'}\n`;
       yml += `    container_name: ${name}\n`;
@@ -178,6 +308,24 @@ function generateDockerCompose(nodes, links) {
       yml += '\n';
     }
   });
+
+  // Agregar Zookeeper si es necesario
+  if (zookeeperAdded) {
+    yml += `  zookeeper:\n`;
+    yml += `    image: bitnami/zookeeper:latest\n`;
+    yml += `    container_name: zookeeper\n`;
+    yml += `    environment:\n`;
+    yml += `      - ALLOW_ANONYMOUS_LOGIN=yes\n`;
+    yml += `    ports:\n      - "2181:2181"\n`;
+    if (zookeeperNetworks.length > 0) {
+      yml += `    networks:\n`;
+      zookeeperNetworks.forEach(net => {
+        yml += `      - ${net}\n`;
+      });
+    }
+    yml += '\n';
+  }
+
   if (networkNames.length > 0) {
     yml += 'networks:\n';
     networkNames.forEach(net => {
@@ -202,19 +350,13 @@ function downloadYML(nodes, links) {
   saveAs(blob, 'docker-compose.yml');
 }
 
-function generateDockerfile(node) {
-  if (node.os === 'windows') {
-    return `FROM mcr.microsoft.com/windows/servercore:ltsc2019\nCMD [\"powershell.exe\"]\n`;
-  }
-  // Linux por defecto
-  return `FROM ubuntu:latest\nCMD [\"/bin/bash\"]\n`;
-}
-
 async function downloadDockerfiles(nodes) {
   const zip = new JSZip();
-  nodes.filter(n => n.type === 'server' || n.type === 'workstation').forEach((node, i) => {
+  nodes.filter(n => n.type === 'server' && n.services && appServices.includes(n.services)).forEach((node, i) => {
     const name = node.name || `${node.type}${i+1}`;
-    zip.file(`${name}/Dockerfile`, generateDockerfile(node));
+    const serviceKey = node.services;
+    const folder = `${name}-${serviceKey}`;
+    zip.file(`${folder}/Dockerfile`, generateDockerfile(node));
   });
   const blob = await zip.generateAsync({ type: 'blob' });
   saveAs(blob, 'dockerfiles.zip');
@@ -226,13 +368,27 @@ async function downloadAll(nodes, links) {
   // docker-compose.yml
   const yml = generateDockerCompose(nodes, links);
   zip.file('docker-compose.yml', yml);
-  // Dockerfiles
-  nodes.filter(n => n.type === 'server' || n.type === 'workstation').forEach((node, i) => {
+  // Dockerfiles solo para apps
+  nodes.filter(n => n.type === 'server' && n.services && appServices.includes(n.services)).forEach((node, i) => {
     const name = node.name || `${node.type}${i+1}`;
-    zip.file(`${name}/Dockerfile`, generateDockerfile(node));
+    const serviceKey = node.services;
+    const folder = `${name}-${serviceKey}`;
+    zip.file(`${folder}/Dockerfile`, generateDockerfile(node));
   });
   const blob = await zip.generateAsync({ type: 'blob' });
   saveAs(blob, 'ecosistema.zip');
+}
+
+// Función simple para resaltar YAML
+function highlightYAML(yml) {
+  if (!yml) return '';
+  // Palabras clave (version, services, networks, volumes, image, container_name, environment, ports, volumes, networks)
+  let html = yml.replace(/^(\s*)([a-zA-Z0-9_\-]+):/gm, (m, p1, p2) => `${p1}<span class='yaml-key'>${p2}</span>:`);
+  // Strings entre comillas
+  html = html.replace(/"([^"]*)"/g, '<span class="yaml-string">"$1"</span>');
+  // Números
+  html = html.replace(/(\b\d+\b)/g, '<span class="yaml-number">$1</span>');
+  return html;
 }
 
 const NetworkDiagram = () => {
@@ -254,6 +410,7 @@ const NetworkDiagram = () => {
   const [portError, setPortError] = useState('');
   const [undoStack, setUndoStack] = useState([]);
   const [redoStack, setRedoStack] = useState([]);
+  const [showCopyMsg, setShowCopyMsg] = useState(false);
 
   const dockerNamePattern = /^[a-z][a-z0-9-]{0,31}$/;
 
@@ -454,8 +611,10 @@ const NetworkDiagram = () => {
       return;
     }
     // Validar puertos
-    if (formData.type === 'server' && formData.services && serviceConfigs[formData.services]) {
-      const ports = serviceConfigs[formData.services].ports || [];
+    let serviceKey = formData.services;
+    if (Array.isArray(serviceKey)) serviceKey = serviceKey[0] || '';
+    if (formData.type === 'server' && serviceKey && serviceConfigs[serviceKey]) {
+      const ports = serviceConfigs[serviceKey].ports || [];
       for (const port of ports) {
         if (!isValidPortMapping(port)) {
           setPortError('Formato de puerto inválido. Usa host:container, solo números. Ejemplo: 3307:3306');
@@ -473,7 +632,7 @@ const NetworkDiagram = () => {
           type: formData.type,
           os: formData.type === 'server' || formData.type === 'workstation' ? formData.os : null,
           name: formData.name && formData.name.trim() !== '' ? formData.name.trim() : undefined,
-          services: formData.type === 'server' ? formData.services : undefined,
+          services: formData.type === 'server' ? (Array.isArray(formData.services) ? formData.services[0] : formData.services) : undefined,
           serviceConfigs: formData.type === 'server' ? { ...serviceConfigs } : undefined,
         } : n);
       } else {
@@ -485,7 +644,7 @@ const NetworkDiagram = () => {
             type: formData.type,
             os: formData.type === 'server' || formData.type === 'workstation' ? formData.os : null,
             name: formData.name && formData.name.trim() !== '' ? formData.name.trim() : undefined,
-            services: formData.type === 'server' ? formData.services : undefined,
+            services: formData.type === 'server' ? (Array.isArray(formData.services) ? formData.services[0] : formData.services) : undefined,
             serviceConfigs: formData.type === 'server' ? { ...serviceConfigs } : undefined,
           },
         ];
@@ -718,48 +877,13 @@ const NetworkDiagram = () => {
     });
   }, [nodes, links, selectedNode, draggingNodeId]);
 
-  // Render icons on top of canvas
-  const renderIcons = () => (
-    nodes.map(node => {
-      let IconComponent;
-      if (node.type === 'server') IconComponent = FaServer;
-      else if (node.type === 'workstation') IconComponent = FaDesktop;
-      else if (node.type === 'network') IconComponent = FaNetworkWired;
-      else if (node.type === 'disk') IconComponent = FaHdd;
-      // Icono de servicio si es server
-      let ServiceIcon = null;
-      if (node.type === 'server' && node.services && serviceIcons[node.services]) {
-        ServiceIcon = serviceIcons[node.services];
-      }
-      return (
-        <span
-          key={node.id}
-          style={{
-            position: 'absolute',
-            left: node.x - NODE_RADIUS,
-            top: node.y - NODE_RADIUS,
-            width: NODE_RADIUS * 2,
-            height: NODE_RADIUS * 2,
-            pointerEvents: 'none',
-            color: node.type === 'network' ? '#4f8cff' : '#333',
-            display: 'block',
-            zIndex: 10,
-          }}
-        >
-          <span style={{ fontSize: 36, position: 'absolute', left: 0, top: 0, zIndex: 1 }}><IconComponent /></span>
-          {(node.type === 'server' || node.type === 'workstation') && node.os === 'linux' && (
-            <span className="node-icon-overlay os" style={{width: 16, height: 16}}><FaLinux style={{ fontSize: 14, color: '#198754', width: 16, height: 16 }} /></span>
-          )}
-          {(node.type === 'server' || node.type === 'workstation') && node.os === 'windows' && (
-            <span className="node-icon-overlay os" style={{width: 16, height: 16}}><FaWindows style={{ fontSize: 14, color: '#0078d4', width: 16, height: 16 }} /></span>
-          )}
-          {ServiceIcon && (
-            <span className="node-icon-overlay service" style={{width: 16, height: 16}}><ServiceIcon style={{ fontSize: 14, color: '#f5b700', width: 16, height: 16 }} /></span>
-          )}
-        </span>
-      );
-    })
-  );
+  const yml = generateDockerCompose(nodes, links);
+
+  const handleCopyYML = useCallback(() => {
+    navigator.clipboard.writeText(yml);
+    setShowCopyMsg(true);
+    setTimeout(() => setShowCopyMsg(false), 1200);
+  }, [yml]);
 
   const handleExportJSON = () => {
     const data = JSON.stringify({ nodes, links }, null, 2);
@@ -789,18 +913,19 @@ const NetworkDiagram = () => {
   };
 
   return (
-    <div className="network-diagram-container" style={{ position: 'relative' }}>
-      <div className="toolbar">
-        <button onClick={() => setMode('node')} className={`btn-primary${mode === 'node' ? ' active' : ''}`}>Agregar Nodo</button>
-        <button onClick={() => setMode('link')} className={`btn-blue${mode === 'link' ? ' active' : ''}`} disabled={nodes.length < 2}>Agregar Enlace</button>
-        <button onClick={() => { setNodes([]); setLinks([]); setSelectedNode(null); localStorage.removeItem(LOCALSTORAGE_KEY); }} className="btn-blue">Limpiar</button>
-        <button onClick={() => downloadAll(nodes, links)} className="btn-blue" disabled={nodes.length === 0}>Exportar ecosistema (YML + Dockerfiles)</button>
-        <button onClick={handleExportJSON} className="btn-blue" disabled={nodes.length === 0}>Exportar diagrama (JSON)</button>
-        <label style={{ background: '#e0e7ef', color: '#222', borderRadius: 5, padding: '0.5rem 1.2rem', cursor: 'pointer', marginLeft: 8 }}>
-          Importar diagrama (JSON)
-          <input type="file" accept="application/json" style={{ display: 'none' }} onChange={handleImportJSON} />
-        </label>
-      </div>
+    <div className="network-diagram-container" style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'stretch', width: '100%' }}>
+      <Toolbar
+        mode={mode}
+        setMode={setMode}
+        nodes={nodes}
+        downloadAll={downloadAll}
+        handleExportJSON={handleExportJSON}
+        handleImportJSON={handleImportJSON}
+        setNodes={setNodes}
+        setLinks={setLinks}
+        setSelectedNode={setSelectedNode}
+        LOCALSTORAGE_KEY={LOCALSTORAGE_KEY}
+      />
       <canvas
         ref={canvasRef}
         width={1200}
@@ -816,122 +941,35 @@ const NetworkDiagram = () => {
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
       />
-      {renderIcons()}
-      {contextMenu && (
-        <div style={{ position: 'fixed', top: contextMenu.y, left: contextMenu.x, background: '#fff', border: '1px solid #ccc', zIndex: 2000, borderRadius: 6, boxShadow: '0 2px 8px #0002', minWidth: 120 }}>
-          {contextMenu.type === 'node' && (
-            <>
-              <button style={{ width: '100%', padding: 8, border: 'none', background: 'none', cursor: 'pointer' }} onClick={() => handleEditNode(contextMenu.id)}>Editar nodo</button>
-              <button style={{ width: '100%', padding: 8, border: 'none', background: 'none', cursor: 'pointer', color: 'red' }} onClick={() => handleDeleteNode(contextMenu.id)}>Eliminar nodo</button>
-            </>
-          )}
-          {contextMenu.type === 'link' && (
-            <>
-              <button style={{ width: '100%', padding: 8, border: 'none', background: 'none', cursor: 'pointer' }} onClick={() => handleEditLink(contextMenu.linkId)}>Editar enlace</button>
-              <button style={{ width: '100%', padding: 8, border: 'none', background: 'none', cursor: 'pointer', color: 'red' }} onClick={() => handleDeleteLink(contextMenu.linkId)}>Eliminar enlace</button>
-            </>
-          )}
-        </div>
-      )}
+      <NodeIcons nodes={nodes} draggingNodeId={draggingNodeId} selectedNode={selectedNode} />
+      <YamlPanel yml={yml} highlightYAML={highlightYAML} handleCopyYML={handleCopyYML} showCopyMsg={showCopyMsg} />
       {showNodeForm && (
-        <div className="modal-overlay animated-modal">
-          <form className="node-form modern-form" onSubmit={handleAddNode} autoComplete="off">
-            <h3 style={{marginBottom: 8, fontWeight: 700, fontSize: '1.2em'}}> {editNode ? 'Editar Nodo' : 'Agregar Nodo'} </h3>
-            <div className="form-grid">
-              <label>
-                <span className="form-label-icon">🏷️</span> Nombre:
-                <input name="name" value={formData.name || ''} onChange={handleFormChange} maxLength={32} required placeholder="Nombre del nodo" className={formError ? 'input-error' : ''} />
-                {formError && <div className="form-error">{formError}</div>}
-              </label>
-              <label>
-                <span className="form-label-icon">🔗</span> Tipo:
-                <select name="type" value={formData.type} onChange={handleFormChange} required>
-                  <option value="" disabled>Selecciona un tipo</option>
-                  {nodeTypes.map(opt => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
-              </label>
-              {(formData.type === 'server' || formData.type === 'workstation') && (
-                <label>
-                  <span className="form-label-icon">💻</span> SO:
-                  <select name="os" value={formData.os} onChange={handleFormChange} required>
-                    <option value="" disabled>Selecciona un sistema operativo</option>
-                    {osTypes.map(opt => (
-                      <option key={opt.value} value={opt.value}>{opt.label}</option>
-                    ))}
-                  </select>
-                </label>
-              )}
-              {formData.type === 'server' && (
-                <label>
-                  <span className="form-label-icon">⚙️</span> Servicio:
-                  <select name="services" value={formData.services} onChange={handleFormChange} required>
-                    <option value="" disabled>Selecciona un servicio</option>
-                    {serverServices.map(opt => (
-                      <option key={opt.value} value={opt.value}>{opt.label}</option>
-                    ))}
-                  </select>
-                </label>
-              )}
-            </div>
-            {portError && <div className="form-error">{portError}</div>}
-            {formData.type === 'server' && formData.services && (
-              <div className="service-config-box">
-                <b>Configuración del servicio:</b>
-                <div className="service-config-fields">
-                  {Object.entries(serviceConfigs[formData.services]?.env || {}).map(([key, val]) => (
-                    <label key={key} className="service-config-label">
-                      {key}:
-                      <input value={val} onChange={e => handleServiceEnvChange(formData.services, key, e.target.value)} />
-                    </label>
-                  ))}
-                  <div className="service-ports">
-                    <b>Puertos:</b>
-                    {(serviceConfigs[formData.services]?.ports || []).map((port, idx) => (
-                      <span key={idx} className="service-port-input">
-                        <input value={port} onChange={e => handleServicePortChange(formData.services, idx, e.target.value)} />
-                        <button type="button" onClick={() => handleRemovePort(formData.services, idx)}>-</button>
-                      </span>
-                    ))}
-                    <button type="button" className="add-port-btn" onClick={() => handleAddPort(formData.services)}>+ Añadir puerto</button>
-                  </div>
-                </div>
-              </div>
-            )}
-            <div className="form-actions">
-              <button type="submit" className="btn-primary" disabled={!!formError || !!portError}>{editNode ? 'Guardar' : 'Agregar'}</button>
-              <button type="button" className="btn-secondary" onClick={handleCloseForm}>Cancelar</button>
-            </div>
-          </form>
-        </div>
+        <NodeForm
+          editNode={editNode}
+          formData={formData}
+          formError={formError}
+          portError={portError}
+          nodeTypes={nodeTypes}
+          osTypes={osTypes}
+          serverServices={serverServices}
+          serviceConfigs={serviceConfigs}
+          handleFormChange={handleFormChange}
+          handleServiceEnvChange={handleServiceEnvChange}
+          handleServicePortChange={handleServicePortChange}
+          handleAddPort={handleAddPort}
+          handleRemovePort={handleRemovePort}
+          handleAddNode={handleAddNode}
+          handleCloseForm={handleCloseForm}
+        />
       )}
       {editLink && (
-        <div className="modal-overlay animated-modal">
-          <form className="node-form modern-form" onSubmit={handleSaveLink} autoComplete="off">
-            <h3 style={{marginBottom: 8, fontWeight: 700, fontSize: '1.2em'}}>Editar Enlace</h3>
-            <div className="form-grid">
-              <label>Origen:
-                <select name="from" value={editLink.from} onChange={handleLinkFormChange}>
-                  {nodes.map(n => (
-                    <option key={n.id} value={n.id}>{n.name || n.type}</option>
-                  ))}
-                </select>
-              </label>
-              <label>Destino:
-                <select name="to" value={editLink.to} onChange={handleLinkFormChange}>
-                  {nodes.map(n => (
-                    <option key={n.id} value={n.id}>{n.name || n.type}</option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            <div className="form-actions">
-              <button type="submit" className="btn-primary">Guardar</button>
-              <button type="button" className="btn-secondary" onClick={handleCloseLinkForm}>Cancelar</button>
-            </div>
-          </form>
-        </div>
+        <LinkForm
+          editLink={editLink}
+          nodes={nodes}
+          handleLinkFormChange={handleLinkFormChange}
+          handleSaveLink={handleSaveLink}
+          handleCloseLinkForm={handleCloseLinkForm}
+        />
       )}
     </div>
   );

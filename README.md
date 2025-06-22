@@ -41,3 +41,7 @@ Esto abrirá la app en tu navegador en [http://localhost:5173](http://localhost:
 ---
 
 **Autor:** Julio Martinez de la IUDIgital
+
+## Herramientas semejantes
+
+- Orca
