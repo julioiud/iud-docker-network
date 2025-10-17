@@ -12,32 +12,57 @@ function App() {
 
   return (
     <div>
-      <h1 style={{
+      <div style={{
         textAlign: 'center',
-        marginTop: '1.2rem',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 8,
-        fontSize: '1.25em',
-        fontWeight: 700,
-        flexWrap: 'wrap',
-        lineHeight: 1.2
+        marginTop: '1.5rem',
+        marginBottom: '1rem',
       }}>
-        <FaDocker style={{ color: '#2496ed', fontSize: 26, verticalAlign: 'middle' }} />
-        <FaNetworkWired style={{ color: '#4f8cff', fontSize: 22, verticalAlign: 'middle' }} />
-        <FaServer style={{ color: '#888', fontSize: 22, verticalAlign: 'middle' }} />
-        <FaCloud style={{ color: '#00bfff', fontSize: 22, verticalAlign: 'middle' }} />
-        <FaDatabase style={{ color: '#b8860b', fontSize: 22, verticalAlign: 'middle' }} />
-        <FaReact style={{ color: '#61dafb', fontSize: 22, verticalAlign: 'middle' }} />
-        <SiAngular style={{ color: '#dd0031', fontSize: 20, verticalAlign: 'middle' }} />
-        <SiVuedotjs style={{ color: '#42b883', fontSize: 20, verticalAlign: 'middle' }} />
-        <FaNodeJs style={{ color: '#3c873a', fontSize: 22, verticalAlign: 'middle' }} />
-        <SiMongodb style={{ color: '#47a248', fontSize: 20, verticalAlign: 'middle' }} />
-        <SiMysql style={{ color: '#00758f', fontSize: 20, verticalAlign: 'middle' }} />
-        <FaCode style={{ color: '#198754', fontSize: 22, verticalAlign: 'middle' }} />
-        <span style={{ marginLeft: 6 }}>Diagramador de ecosistema de desarrollo web con Docker</span>
-      </h1>
+        <h1 style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 8,
+          fontSize: '1.35em',
+          fontWeight: 700,
+          flexWrap: 'wrap',
+          lineHeight: 1.3,
+          marginBottom: '0.5rem',
+          color: '#243F59'
+        }}>
+          <FaDocker style={{ color: '#2496ed', fontSize: 32 }} />
+          <span>Diagramador Docker con Código Educativo</span>
+        </h1>
+        <p style={{
+          fontSize: '0.95em',
+          color: '#666',
+          maxWidth: 750,
+          margin: '0 auto',
+          lineHeight: 1.5,
+          padding: '0 1rem'
+        }}>
+          🎓 Aprende Docker diseñando arquitecturas visualmente. Genera código limpio y usa <strong>tooltips interactivos</strong> en la previsualización para entender cada concepto al instante.
+        </p>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 12,
+          marginTop: '0.8rem',
+          flexWrap: 'wrap',
+          fontSize: 24
+        }}>
+          <FaNetworkWired style={{ color: '#4f8cff' }} title="Redes Docker" />
+          <FaServer style={{ color: '#888' }} title="Contenedores" />
+          <FaDatabase style={{ color: '#b8860b' }} title="Bases de Datos" />
+          <FaReact style={{ color: '#61dafb' }} title="React" />
+          <SiAngular style={{ color: '#dd0031' }} title="Angular" />
+          <SiVuedotjs style={{ color: '#42b883' }} title="Vue.js" />
+          <FaNodeJs style={{ color: '#3c873a' }} title="Node.js" />
+          <SiMongodb style={{ color: '#47a248' }} title="MongoDB" />
+          <SiMysql style={{ color: '#00758f' }} title="MySQL" />
+          <FaCode style={{ color: '#198754' }} title="Desarrollo" />
+        </div>
+      </div>
       <NetworkDiagram />
       <Footer />
     </div>

@@ -33,10 +33,10 @@
 }
 
 .network-canvas {
-  border: 2px solid #4f8cff;
-  border-radius: 8px;
-  background: #f8fafc;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+  border: 3px solid #4f8cff;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #f8fafc 0%, #e8f4ff 100%);
+  box-shadow: 0 4px 20px rgba(79, 140, 255, 0.15);
   width: 100%;
   max-width: 800px;
   min-width: 320px;
@@ -44,6 +44,12 @@
   max-height: 500px;
   min-height: 240px;
   display: block;
+  cursor: crosshair;
+  transition: box-shadow 0.3s;
+}
+
+.network-canvas:hover {
+  box-shadow: 0 6px 28px rgba(79, 140, 255, 0.25);
 }
 
 .modal-overlay {

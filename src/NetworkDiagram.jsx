@@ -7,7 +7,7 @@ import JSZip from 'jszip';
 import NodeForm from './components/NetworkDiagram/NodeForm';
 import LinkForm from './components/NetworkDiagram/LinkForm';
 import Toolbar from './components/NetworkDiagram/Toolbar';
-import YamlPanel from './components/NetworkDiagram/YamlPanel';
+import YamlPanelWithTooltips from './components/NetworkDiagram/YamlPanelWithTooltips';
 import NodeIcons from './components/NetworkDiagram/NodeIcons';
 
 const NODE_RADIUS = 24;
@@ -84,24 +84,40 @@ function generateDockerfile(node) {
   }
   switch (serviceKey) {
     case 'springboot':
-      return `# Dockerfile para Spring Boot\nFROM openjdk:17-jdk-slim\nWORKDIR /app\nCOPY ./*.jar app.jar\nEXPOSE 8080\nENTRYPOINT [\"java\", \"-jar\", \"app.jar\"]\n`;
+      return `# Dockerfile para Spring Boot\nFROM openjdk:17-jdk-slim\nWORKDIR /app\nCOPY ./*.jar app.jar\nEXPOSE 8080\nENTRYPOINT ["java", "-jar", "app.jar"]\n`;
     case 'flask':
-      return `# Dockerfile para Flask\nFROM python:3.11-slim\nWORKDIR /app\nCOPY . .\nRUN pip install --no-cache-dir -r requirements.txt\nEXPOSE 5000\nCMD [\"python\", \"app.py\"]\n`;
+      return `# Dockerfile para Flask\nFROM python:3.11-slim\nWORKDIR /app\nCOPY . .\nRUN pip install --no-cache-dir -r requirements.txt\nEXPOSE 5000\nCMD ["python", "app.py"]\n`;
     case 'django':
-      return `# Dockerfile para Django\nFROM python:3.11-slim\nWORKDIR /app\nCOPY . .\nRUN pip install --no-cache-dir -r requirements.txt\nEXPOSE 8000\nCMD [\"python\", \"manage.py\", \"runserver\", \"0.0.0.0:8000\"]\n`;
+      return `# Dockerfile para Django\nFROM python:3.11-slim\nWORKDIR /app\nCOPY . .\nRUN pip install --no-cache-dir -r requirements.txt\nEXPOSE 8000\nCMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]\n`;
     case 'laravel':
       return `# Dockerfile para Laravel\nFROM php:8.2-apache\nWORKDIR /var/www/html\nCOPY . .\nRUN docker-php-ext-install pdo pdo_mysql\nEXPOSE 80\n`;
     case 'reactjs':
-      return `# Dockerfile para ReactJS\nFROM node:20\nWORKDIR /app\nCOPY package*.json ./\nRUN npm install\nCOPY . .\nEXPOSE 3000\nCMD [\"npm\", \"start\"]\n`;
+      return `# Dockerfile para ReactJS\nFROM node:20\nWORKDIR /app\nCOPY package*.json ./\nRUN npm install\nCOPY . .\nEXPOSE 3000\nCMD ["npm", "start"]\n`;
     case 'angular':
-      return `# Dockerfile para Angular\nFROM node:20\nWORKDIR /app\nCOPY package*.json ./\nRUN npm install\nCOPY . .\nEXPOSE 4200\nCMD [\"npm\", \"start\"]\n`;
+      return `# Dockerfile para Angular\nFROM node:20\nWORKDIR /app\nCOPY package*.json ./\nRUN npm install\nCOPY . .\nEXPOSE 4200\nCMD ["npm", "start"]\n`;
     case 'vuejs':
-      return `# Dockerfile para VueJS\nFROM node:20\nWORKDIR /app\nCOPY package*.json ./\nRUN npm install\nCOPY . .\nEXPOSE 5173\nCMD [\"npm\", \"run\", \"dev\"]\n`;
+      return `# Dockerfile para VueJS\nFROM node:20\nWORKDIR /app\nCOPY package*.json ./\nRUN npm install\nCOPY . .\nEXPOSE 5173\nCMD ["npm", "run", "dev"]\n`;
     case 'dotnet':
-      return `# Dockerfile para .NET\nFROM mcr.microsoft.com/dotnet/aspnet:8.0 AS base\nWORKDIR /app\nEXPOSE 80\nFROM mcr.microsoft.com/dotnet/sdk:8.0 AS build\nWORKDIR /src\nCOPY . .\nRUN dotnet publish -c Release -o /app\nFROM base AS final\nWORKDIR /app\nCOPY --from=build /app .\nENTRYPOINT [\"dotnet\", \"app.dll\"]\n`;
+      return `# Dockerfile para .NET\nFROM mcr.microsoft.com/dotnet/aspnet:8.0 AS base\nWORKDIR /app\nEXPOSE 80\nFROM mcr.microsoft.com/dotnet/sdk:8.0 AS build\nWORKDIR /src\nCOPY . .\nRUN dotnet publish -c Release -o /app\nFROM base AS final\nWORKDIR /app\nCOPY --from=build /app .\nENTRYPOINT ["dotnet", "app.dll"]\n`;
     default:
-      return `FROM ubuntu:latest\nCMD [\"/bin/bash\"]\n`;
+      return `# Imagen base por defecto\nFROM ubuntu:latest\nCMD [\"/bin/bash\"]\n`;
   }
+}
+
+// Función auxiliar para describir variables de entorno comunes
+function getEnvDescription(envKey, serviceKey) {
+  const descriptions = {
+    'MYSQL_ROOT_PASSWORD': 'Contraseña del usuario root de MySQL',
+    'MYSQL_DATABASE': 'Nombre de la base de datos a crear',
+    'POSTGRES_PASSWORD': 'Contraseña del usuario postgres',
+    'POSTGRES_DB': 'Nombre de la base de datos PostgreSQL',
+    'ORACLE_PASSWORD': 'Contraseña del usuario SYSTEM de Oracle',
+    'SA_PASSWORD': 'Contraseña del usuario SA (SQL Server)',
+    'ACCEPT_EULA': 'Aceptación de licencia de SQL Server',
+    'MONGO_INITDB_ROOT_USERNAME': 'Usuario administrador de MongoDB',
+    'MONGO_INITDB_ROOT_PASSWORD': 'Contraseña del admin de MongoDB',
+  };
+  return descriptions[envKey] || 'Variable de configuración';
 }
 
 function generateDockerCompose(nodes, links) {
@@ -157,8 +173,15 @@ function generateDockerCompose(nodes, links) {
     ];
   }
 
-  // Construir YAML
-  let yml = 'version: "3.8"\nservices:\n';
+  // Construir YAML limpio (tooltips en la interfaz)
+  let yml = `# Docker Compose generado por Diagramador Docker Educativo
+# Documentación: https://docs.docker.com/compose/
+
+version: "3.8"
+
+services:
+`;
+
   services.forEach((svc, i) => {
     const name = serviceNames[i];
     if (svc.type === 'server') {
@@ -169,7 +192,6 @@ function generateDockerCompose(nodes, links) {
           const svcName = `${name}-${serviceKey}`;
           yml += `  ${svcName}:\n`;
           if (serviceKey === 'kafka') {
-            // Kafka depende de zookeeper
             yml += `    image: ${serviceDef.image}\n`;
             yml += `    container_name: ${svcName}\n`;
             yml += `    depends_on:\n      - zookeeper\n`;
@@ -207,7 +229,6 @@ function generateDockerCompose(nodes, links) {
           } else if (appServices.includes(serviceKey)) {
             yml += `    build: ./${svcName}\n`;
             yml += `    container_name: ${svcName}\n`;
-            // Variables de entorno
             const envs = (svc.serviceConfigs && svc.serviceConfigs[serviceKey]?.env) || {};
             if (Object.keys(envs).length > 0) {
               yml += `    environment:\n`;
@@ -215,7 +236,6 @@ function generateDockerCompose(nodes, links) {
                 yml += `      - ${k}=${v}\n`;
               });
             }
-            // Puertos
             const ports = (svc.serviceConfigs && svc.serviceConfigs[serviceKey]?.ports) || [];
             if (ports.length > 0) {
               yml += `    ports:\n`;
@@ -239,7 +259,6 @@ function generateDockerCompose(nodes, links) {
           } else {
             yml += `    image: ${serviceDef.image}\n`;
             yml += `    container_name: ${svcName}\n`;
-            // Variables de entorno
             const envs = (svc.serviceConfigs && svc.serviceConfigs[serviceKey]?.env) || {};
             if (Object.keys(envs).length > 0) {
               yml += `    environment:\n`;
@@ -247,7 +266,6 @@ function generateDockerCompose(nodes, links) {
                 yml += `      - ${k}=${v}\n`;
               });
             }
-            // Puertos
             const ports = (svc.serviceConfigs && svc.serviceConfigs[serviceKey]?.ports) || [];
             if (ports.length > 0) {
               yml += `    ports:\n`;
@@ -332,8 +350,7 @@ function generateDockerCompose(nodes, links) {
       yml += `  ${net}:\n    driver: bridge\n`;
     });
   }
-  // Volúmenes
-  // Solo los volúmenes que se usan
+  
   const allVolumes = Object.values(serviceDisks).flat();
   if (allVolumes.length > 0) {
     yml += 'volumes:\n';
@@ -341,6 +358,7 @@ function generateDockerCompose(nodes, links) {
       yml += `  ${vol}:\n`;
     });
   }
+  
   return yml;
 }
 
@@ -961,7 +979,7 @@ const NetworkDiagram = () => {
         onTouchEnd={handleTouchEnd}
       />
       <NodeIcons nodes={nodes} draggingNodeId={draggingNodeId} selectedNode={selectedNode} />
-      <YamlPanel yml={yml} highlightYAML={highlightYAML} handleCopyYML={handleCopyYML} showCopyMsg={showCopyMsg} />
+      <YamlPanelWithTooltips yml={yml} handleCopyYML={handleCopyYML} showCopyMsg={showCopyMsg} />
       {showNodeForm && (
         <NodeForm
           editNode={editNode}
